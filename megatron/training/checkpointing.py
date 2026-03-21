@@ -1908,14 +1908,6 @@ def load_checkpoint(ddp_model, optimizer, opt_param_scheduler, load_arg='load', 
             else:
                 optimizer.reload_model_params()
 
-    # rerun state
-    if not ignore_rerun_state:
-        try:
-            if 'rerun_state_machine' in state_dict:
-                get_rerun_state_machine().load_state_dict(state_dict['rerun_state_machine'])
-        except Exception as e:
-            print_rank_0(f"Unable to restore RerunMachine from checkpoint: {e}. Skipping.")
-
     # rng states.
     if not release and not args.finetune and not args.no_load_rng and not ignore_rng_state:
         try:
@@ -1969,6 +1961,15 @@ def load_checkpoint(ddp_model, optimizer, opt_param_scheduler, load_arg='load', 
                          'attempting to load the rng state, '
                          'exiting ...'.format(checkpoint_name))
             sys.exit()
+
+    # rerun state: loaded after RNG so that load_state_dict can capture the restored RNG
+    # when resuming from a RERUNNING_IN_PLACE checkpoint.
+    if not ignore_rerun_state:
+        try:
+            if 'rerun_state_machine' in state_dict:
+                get_rerun_state_machine().load_state_dict(state_dict['rerun_state_machine'])
+        except Exception as e:
+            print_rank_0(f"Unable to restore RerunMachine from checkpoint: {e}. Skipping.")
 
     # Some utilities want to load a checkpoint without distributed being initialized
     if torch.distributed.is_initialized():

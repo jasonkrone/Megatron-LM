@@ -909,6 +909,12 @@ class RerunStateMachine:
         self.large_value_counts = sharded_dict["large_value_counts"]
         self.max_values = sharded_dict["max_values"]
 
+        # saved_state (RNG snapshot) is never persisted to checkpoint. When resuming with
+        # RERUNNING_IN_PLACE, the checkpoint RNG has already been restored before this call,
+        # so capture it now so that _restore_state() works on the next iteration.
+        if self.state == RerunState.RERUNNING_IN_PLACE:
+            self._save_state()
+
     def _sanitize_data_iterators(
         self, data_iterator: DataIteratorArgType
     ) -> list["RerunDataIterator"]:
