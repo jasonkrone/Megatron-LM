@@ -22,7 +22,14 @@ def compile_helpers():
     import os
     import subprocess
 
-    command = ["make", "-C", os.path.abspath(os.path.dirname(__file__))]
+    # If the compiled .so already exists, skip recompilation.
+    helpers_dir = os.path.abspath(os.path.dirname(__file__))
+    so_files = [f for f in os.listdir(helpers_dir) if f.startswith("helpers_cpp") and f.endswith(".so")]
+    if so_files:
+        log_single_rank(logger, logging.INFO, "C++ dataset helper already compiled, skipping make")
+        return
+
+    command = ["make", "-C", helpers_dir]
     if subprocess.run(command).returncode != 0:
         import sys
 
