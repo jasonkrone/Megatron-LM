@@ -2322,7 +2322,15 @@ class TransformerConfig(ModelParallelConfig):
                 self.overlap_moe_expert_parallel_comm
             ), 'overlap_moe_expert_parallel_comm must be enabled when enabling delay_wgrad_compute'
             if self.cuda_graph_impl == "transformer_engine":
-                assert is_te_min_version("2.10.0"), (
+                # Allow the jaimec00 SLNMLP fork ("2.10.0.dev0+d86bc00d"), which is based on
+                # TE's pre-v2.10 main and has the delay_wgrad_compute + partial cuda graph
+                # support Megatron requires, but whose PEP 440 .dev0 suffix trips the usual
+                # min-version check. Confirmed API present: WeightGradStore wgrad_store param
+                # in layernorm_mlp.py, need_backward_dw()/backward_dw() on TE base module,
+                # and graph.py cuda-graph path calling module.backward_dw().
+                import transformer_engine as _te
+                _te_ver = getattr(_te, "__version__", "")
+                assert is_te_min_version("2.10.0") or _te_ver.startswith("2.10.0.dev0+d86bc00d"), (
                     'TE version >= 2.10.0 is required for delay_wgrad_compute with '
                     'partial cuda graph'
                 )
