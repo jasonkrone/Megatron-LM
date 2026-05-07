@@ -30,7 +30,7 @@ from megatron.core.transformer.moe.token_dispatcher_inference import (
 )
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.typed_torch import apply_module, not_none
-from megatron.core.utils import internal_api
+from megatron.core.utils import internal_api, nvtx_range_pop, nvtx_range_push
 
 try:
     import flashinfer  # pylint: disable=unused-import
@@ -551,7 +551,9 @@ class MoELayer(BaseMoELayer):
             try:
                 if "route" in self.fwd_execution_map:
                     shared_expert_output = self.shared_experts_compute(hidden_states)
+                    nvtx_range_push(suffix="moe_router")
                     probs, routing_map = self.route(hidden_states, padding_mask)
+                    nvtx_range_pop(suffix="moe_router")
                     hidden_states, probs = self.preprocess(hidden_states, probs, routing_map)
 
                     if intermediate_tensors is not None:
@@ -569,12 +571,18 @@ class MoELayer(BaseMoELayer):
                 if intermediate_tensors is not None:
                     hidden_states, probs = intermediate_tensors
 
+                nvtx_range_push(suffix="moe_dispatch")
                 dispatched_input, probs = self.dispatch(hidden_states, probs)
+                nvtx_range_pop(suffix="moe_dispatch")
+                nvtx_range_push(suffix="moe_local_experts")
                 output, mlp_bias = self.routed_experts_compute(dispatched_input, probs)
+                nvtx_range_pop(suffix="moe_local_experts")
                 assert (
                     mlp_bias is None
                 ), f"mlp_bias is not supported for {type(self.token_dispatcher)}"
+                nvtx_range_push(suffix="moe_combine")
                 output = self.combine(output)
+                nvtx_range_pop(suffix="moe_combine")
 
                 if intermediate_tensors is not None:
                     return output, mlp_bias

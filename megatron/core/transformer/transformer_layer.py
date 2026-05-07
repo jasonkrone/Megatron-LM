@@ -584,6 +584,7 @@ class TransformerLayer(GraphableMegatronModule, BaseTransformerLayer):
 
         # Optional Input Layer norm
         attn_norm_manager = self.off_interface(self.offload_attn_norm, hidden_states, "attn_norm")
+        nvtx_range_push(suffix="attn_norm")
         if self.recompute_input_layernorm:
             self.input_layernorm_checkpoint = tensor_parallel.CheckpointWithoutOutput()
             with attn_norm_manager as hidden_states:
@@ -593,6 +594,7 @@ class TransformerLayer(GraphableMegatronModule, BaseTransformerLayer):
         else:
             with attn_norm_manager as hidden_states:
                 input_layernorm_output = apply_module(self.input_layernorm)(hidden_states)
+        nvtx_range_pop(suffix="attn_norm")
 
         if isinstance(input_layernorm_output, tuple):
             if len(input_layernorm_output) != 2:
@@ -616,7 +618,7 @@ class TransformerLayer(GraphableMegatronModule, BaseTransformerLayer):
             self._set_proj_residual(residual)
 
         # Self attention.
-        nvtx_range_push(suffix="self_attention")
+        nvtx_range_push(suffix="attn")
         attention_output_with_bias = self.self_attention(
             input_layernorm_output,
             attention_mask=attention_mask,
@@ -629,7 +631,7 @@ class TransformerLayer(GraphableMegatronModule, BaseTransformerLayer):
             packed_seq_params=packed_seq_params,
             sequence_len_offset=sequence_len_offset,
         )
-        nvtx_range_pop(suffix="self_attention")
+        nvtx_range_pop(suffix="attn")
 
         if self.recompute_input_layernorm:
             # discard the output of the input layernorm and register the recompute
@@ -719,6 +721,7 @@ class TransformerLayer(GraphableMegatronModule, BaseTransformerLayer):
 
     def _forward_pre_mlp_layernorm(self, hidden_states: Tensor):
         self.mlp_norm_manager = self.off_interface(self.offload_mlp_norm, hidden_states, "mlp_norm")
+        nvtx_range_push(suffix="mlp_norm")
         if self.recompute_pre_mlp_layernorm:
             self.pre_mlp_norm_checkpoint = tensor_parallel.CheckpointWithoutOutput()
             with self.mlp_norm_manager as hidden_states:
@@ -728,6 +731,7 @@ class TransformerLayer(GraphableMegatronModule, BaseTransformerLayer):
         else:
             with self.mlp_norm_manager as hidden_states:
                 pre_mlp_layernorm_output = apply_module(self.pre_mlp_layernorm)(hidden_states)
+        nvtx_range_pop(suffix="mlp_norm")
 
         return pre_mlp_layernorm_output
 
@@ -1590,7 +1594,7 @@ class HyperConnectionTransformerLayer(TransformerLayer):
                 input_layernorm_output = self.input_layernorm(hidden_states)
 
         # Self attention.
-        nvtx_range_push(suffix="self_attention")
+        nvtx_range_push(suffix="attn")
         attention_output_with_bias = self.self_attention(
             input_layernorm_output,
             attention_mask=attention_mask,
@@ -1603,7 +1607,7 @@ class HyperConnectionTransformerLayer(TransformerLayer):
             packed_seq_params=packed_seq_params,
             sequence_len_offset=sequence_len_offset,
         )
-        nvtx_range_pop(suffix="self_attention")
+        nvtx_range_pop(suffix="attn")
 
         if checkpoint_input_layernorm:
             self.input_layernorm_checkpoint.discard_output_and_register_recompute(

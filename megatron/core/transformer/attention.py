@@ -969,7 +969,7 @@ class Attention(MegatronModule, ABC):
         # =====================
         # Get the query, key and value tensors based on the type of attention -
         # self or cross attn.
-        nvtx_range_push(suffix="qkv")
+        nvtx_range_push(suffix="attn_qkv_proj")
         split_qkv = (self.attention_type == "cross") or not all(
             [
                 not self.config.test_mode,
@@ -1021,7 +1021,7 @@ class Attention(MegatronModule, ABC):
                 not self.config.attention_output_gate
             ), "attention_output_gate is not supported for unsplit mixed_qkv tensor."
             mixed_qkv, qkv_split_arg_list = qkv_output
-        nvtx_range_pop(suffix="qkv")
+        nvtx_range_pop(suffix="attn_qkv_proj")
 
         # ===================================================
         # Adjust key, value, and rotary_pos_emb for inference
@@ -1090,7 +1090,7 @@ class Attention(MegatronModule, ABC):
         # ================================================
         # relative positional embedding (rotary embedding)
         # ================================================
-        nvtx_range_push(suffix="rotary_pos_emb")
+        nvtx_range_push(suffix="attn_rope")
         if rotary_pos_emb is not None and (
             not self.config.flash_decode or inference_context is None
         ):
@@ -1142,13 +1142,13 @@ class Attention(MegatronModule, ABC):
             # absolute positional embedding.
             # otherwise, only relative positional embedding takes effect
             # value_layer = apply_rotary_pos_emb(value_layer, k_pos_emb)
-        nvtx_range_pop(suffix="rotary_pos_emb")
+        nvtx_range_pop(suffix="attn_rope")
 
         # ==================================
         # core attention computation
         # ==================================
 
-        nvtx_range_push(suffix="core_attention")
+        nvtx_range_push(suffix="flex_attention")
         core_attn_manager = off_interface(
             self.offload_core_attention and self.training, query, "core_attn"
         )
@@ -1211,7 +1211,7 @@ class Attention(MegatronModule, ABC):
             # t is the pack size = sum (sq_i)
             # note that batch is a dummy dimension in the packed case
             core_attn_out = core_attn_out.reshape(core_attn_out.size(0), 1, -1)
-        nvtx_range_pop(suffix="core_attention")
+        nvtx_range_pop(suffix="flex_attention")
 
         # Output gate
         if gate is not None:
@@ -1222,12 +1222,12 @@ class Attention(MegatronModule, ABC):
         # =================
         # Output. [sq, b, h]
         # =================
-        nvtx_range_push(suffix="linear_proj")
+        nvtx_range_push(suffix="attn_out")
         attn_proj_manager = off_interface(self.offload_attn_proj, core_attn_out, "attn_proj")
         with attn_proj_manager as core_attn_out:
             output, bias = self.linear_proj(core_attn_out)
         output = attn_proj_manager.group_offload(output, forced_released_tensors=[core_attn_out])
-        nvtx_range_pop(suffix="linear_proj")
+        nvtx_range_pop(suffix="attn_out")
 
         self.pg_collection.cp = _orig_cp_group
         return output, bias
